@@ -866,6 +866,7 @@ impl Op {
                     name: WorkspaceName(format!("ws{ws_name}")),
                     open_on_output: output_name.map(|name| format!("output{name}")),
                     layout: layout_config.map(|x| niri_config::WorkspaceLayoutPart(*x)),
+                    hidden: None,
                 });
             }
             Op::UnnameWorkspace { ws_name } => {
@@ -3870,4 +3871,93 @@ proptest! {
 
         check_ops_with_options(options, ops);
     }
+}
+
+#[test]
+fn hidden_workspace_skips_navigation() {
+    let ops = [
+        Op::AddOutput(1),
+        Op::AddNamedWorkspace {
+            ws_name: 1,
+            output_name: None,
+            layout_config: None,
+        },
+        Op::AddNamedWorkspace {
+            ws_name: 2,
+            output_name: None,
+            layout_config: None,
+        },
+        Op::AddNamedWorkspace {
+            ws_name: 3,
+            output_name: None,
+            layout_config: None,
+        },
+    ];
+    let mut layout = check_ops(ops);
+
+    // Order should be [ws3, ws2, ws1, empty].
+    // Verify order.
+    let names: Vec<_> = layout.workspaces().map(|(_, _, ws)| ws.name().cloned()).collect();
+    assert_eq!(names, vec![Some("ws3".into()), Some("ws2".into()), Some("ws1".into()), None]);
+
+    // Hide ws2.
+    layout.workspaces_mut().find(|ws| ws.name() == Some(&"ws2".to_string())).unwrap().set_hidden(true);
+
+    // Focus ws1 (index 2).
+    let (idx, _) = layout.find_workspace_by_name("ws1").unwrap();
+    layout.switch_workspace(idx);
+    assert_eq!(layout.active_workspace().unwrap().name().unwrap(), "ws1");
+
+    // switch_workspace_up.
+    // Current: 2 (ws1). Previous visible: ws3 (0). Hidden: ws2 (1).
+    // Should go to ws3.
+    layout.switch_workspace_up();
+    assert_eq!(layout.active_workspace().unwrap().name().unwrap(), "ws3");
+
+    // switch_workspace_down.
+    // Current: 0 (ws3). Next visible: ws1 (2). Hidden: ws2 (1).
+    // Should go to ws1.
+    layout.switch_workspace_down();
+    assert_eq!(layout.active_workspace().unwrap().name().unwrap(), "ws1");
+
+    // Test Index based access.
+    // Visual list: [ws3, ws1, empty].
+    // Index 1 -> ws3.
+    // Index 2 -> ws1.
+    // Index 3 -> empty.
+
+    // find_workspace_by_ref uses 1-based index.
+    // Ref 1 -> ws3.
+    // Ref 2 -> ws1.
+
+    let ws = layout.find_workspace_by_ref(WorkspaceReference::Index(1)).unwrap();
+    assert_eq!(ws.name().unwrap(), "ws3");
+
+    let ws = layout.find_workspace_by_ref(WorkspaceReference::Index(2));
+    assert_eq!(ws.unwrap().name().unwrap(), "ws1");
+
+    // Ensure we can still switch to hidden workspace by name.
+    let ws = layout.find_workspace_by_ref(WorkspaceReference::Name("ws2".into())).unwrap();
+    assert_eq!(ws.name().unwrap(), "ws2");
+
+    // Activating hidden workspace manually should work (via ID).
+    let (idx, _) = layout.find_workspace_by_name("ws2").unwrap();
+    if let MonitorSet::Normal { monitors, .. } = &mut layout.monitor_set {
+        monitors[0].activate_workspace(idx);
+    }
+
+    assert_eq!(layout.active_workspace().unwrap().name().unwrap(), "ws2");
+
+    // From hidden workspace ws2 (1):
+    // Up -> ws3 (0).
+    layout.switch_workspace_up();
+    assert_eq!(layout.active_workspace().unwrap().name().unwrap(), "ws3");
+
+    // Back to ws2.
+    if let MonitorSet::Normal { monitors, .. } = &mut layout.monitor_set {
+        monitors[0].activate_workspace(idx);
+    }
+    // Down -> ws1 (2).
+    layout.switch_workspace_down();
+    assert_eq!(layout.active_workspace().unwrap().name().unwrap(), "ws1");
 }

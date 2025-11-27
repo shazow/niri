@@ -110,6 +110,9 @@ pub struct Workspace<W: LayoutElement> {
 
     /// Unique ID of this workspace.
     id: WorkspaceId,
+
+    /// Whether the workspace is hidden from the incremental selection.
+    hidden: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -221,6 +224,12 @@ impl<W: LayoutElement> Workspace<W> {
             .map(OutputId)
             .unwrap_or(OutputId::new(&output));
 
+        let hidden = config
+            .as_ref()
+            .and_then(|c| c.hidden)
+            .map(|f| f.0)
+            .unwrap_or(false);
+
         let layout_config = config.as_mut().and_then(|c| c.layout.take().map(|x| x.0));
 
         let scale = output.current_scale();
@@ -270,6 +279,7 @@ impl<W: LayoutElement> Workspace<W> {
             name: config.map(|c| c.name.0),
             layout_config,
             id: WorkspaceId::next(),
+            hidden,
         }
     }
 
@@ -284,6 +294,12 @@ impl<W: LayoutElement> Workspace<W> {
                 .and_then(|c| c.open_on_output.clone())
                 .unwrap_or_default(),
         );
+
+        let hidden = config
+            .as_ref()
+            .and_then(|c| c.hidden)
+            .map(|f| f.0)
+            .unwrap_or(false);
 
         let layout_config = config.as_mut().and_then(|c| c.layout.take().map(|x| x.0));
 
@@ -334,6 +350,7 @@ impl<W: LayoutElement> Workspace<W> {
             name: config.map(|c| c.name.0),
             layout_config,
             id: WorkspaceId::next(),
+            hidden,
         }
     }
 
@@ -343,6 +360,14 @@ impl<W: LayoutElement> Workspace<W> {
 
     pub fn id(&self) -> WorkspaceId {
         self.id
+    }
+
+    pub fn hidden(&self) -> bool {
+        self.hidden
+    }
+
+    pub fn set_hidden(&mut self, hidden: bool) {
+        self.hidden = hidden;
     }
 
     pub fn name(&self) -> Option<&String> {

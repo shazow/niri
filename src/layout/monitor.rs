@@ -393,6 +393,39 @@ impl<W: LayoutElement> Monitor<W> {
         &mut self.workspaces[self.active_workspace_idx]
     }
 
+    pub(super) fn get_visual_indices(&self) -> Vec<usize> {
+        let ongoing_switch = self.workspace_switch.is_some();
+        let active_id = self.workspaces[self.active_workspace_idx].id();
+
+        self.workspaces
+            .iter()
+            .enumerate()
+            .filter(|(_, ws)| {
+                if !ws.hidden() {
+                    return true;
+                }
+                if ws.id() == active_id {
+                    return true;
+                }
+                if ongoing_switch {
+                    if let Some(prev_id) = self.previous_workspace_id {
+                        if ws.id() == prev_id {
+                            return true;
+                        }
+                    }
+                }
+                false
+            })
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    fn real_to_visual_idx(&self, real_idx: usize) -> Option<usize> {
+        self.get_visual_indices()
+            .iter()
+            .position(|&idx| idx == real_idx)
+    }
+
     pub fn windows(&self) -> impl Iterator<Item = &W> {
         self.workspaces.iter().flat_map(|ws| ws.windows())
     }
@@ -449,6 +482,12 @@ impl<W: LayoutElement> Monitor<W> {
 
         let config = config.unwrap_or(self.options.animations.workspace_switch.0);
 
+        // We need to calculate target_idx based on the new visual indices, which might have changed
+        // if we switched to/from a hidden workspace.
+        let target_idx = self
+            .real_to_visual_idx(idx)
+            .expect("active workspace must be visible") as f64;
+
         match &mut self.workspace_switch {
             // During a DnD scroll, we want to visually animate even if idx matches the active idx.
             Some(WorkspaceSwitch::Gesture(gesture)) if gesture.dnd_last_event_time.is_some() => {
@@ -456,9 +495,9 @@ impl<W: LayoutElement> Monitor<W> {
 
                 // Adjust start_idx to make current_idx point at idx.
                 let current_pos = gesture.current_idx - gesture.start_idx;
-                gesture.start_idx = idx as f64 - current_pos;
+                gesture.start_idx = target_idx - current_pos;
                 let prev_current_idx = gesture.current_idx;
-                gesture.current_idx = idx as f64;
+                gesture.current_idx = target_idx;
 
                 let current_idx_delta = gesture.current_idx - prev_current_idx;
                 gesture.animate_from(-current_idx_delta, self.clock.clone(), config);
@@ -472,7 +511,7 @@ impl<W: LayoutElement> Monitor<W> {
                 self.workspace_switch = Some(WorkspaceSwitch::Animation(Animation::new(
                     self.clock.clone(),
                     current_idx,
-                    idx as f64,
+                    target_idx,
                     0.,
                     config,
                 )));
@@ -976,29 +1015,41 @@ impl<W: LayoutElement> Monitor<W> {
     }
 
     pub fn switch_workspace_up(&mut self) {
-        let new_idx = match &self.workspace_switch {
+        let visual_indices = self.get_visual_indices();
+        let current_visual = self
+            .real_to_visual_idx(self.active_workspace_idx)
+            .expect("active workspace must be visible");
+
+        let new_visual = match &self.workspace_switch {
             // During a DnD scroll, select the prev apparent workspace.
             Some(WorkspaceSwitch::Gesture(gesture)) if gesture.dnd_last_event_time.is_some() => {
                 let current = gesture.current_idx;
                 let new = current.ceil() - 1.;
-                new.clamp(0., (self.workspaces.len() - 1) as f64) as usize
+                new.clamp(0., (visual_indices.len() - 1) as f64) as usize
             }
-            _ => self.active_workspace_idx.saturating_sub(1),
+            _ => current_visual.saturating_sub(1),
         };
+        let new_idx = visual_indices[new_visual];
 
         self.activate_workspace(new_idx);
     }
 
     pub fn switch_workspace_down(&mut self) {
-        let new_idx = match &self.workspace_switch {
+        let visual_indices = self.get_visual_indices();
+        let current_visual = self
+            .real_to_visual_idx(self.active_workspace_idx)
+            .expect("active workspace must be visible");
+
+        let new_visual = match &self.workspace_switch {
             // During a DnD scroll, select the next apparent workspace.
             Some(WorkspaceSwitch::Gesture(gesture)) if gesture.dnd_last_event_time.is_some() => {
                 let current = gesture.current_idx;
                 let new = current.floor() + 1.;
-                new.clamp(0., (self.workspaces.len() - 1) as f64) as usize
+                new.clamp(0., (visual_indices.len() - 1) as f64) as usize
             }
-            _ => min(self.active_workspace_idx + 1, self.workspaces.len() - 1),
+            _ => min(current_visual + 1, visual_indices.len() - 1),
         };
+        let new_idx = visual_indices[new_visual];
 
         self.activate_workspace(new_idx);
     }
@@ -1147,11 +1198,12 @@ impl<W: LayoutElement> Monitor<W> {
                     let scale = self.scale.fractional_scale();
                     let zoom = self.overview_zoom();
                     let gap = self.workspace_gap(zoom);
+                    let visual_count = self.get_visual_indices().len();
 
                     let hint_gap = round_logical_in_physical(scale, gap * 0.1);
                     let hint_height = gap - hint_gap * 2.;
 
-                    let next_ws_geo = self.workspaces_render_geo().nth(ws_idx).unwrap();
+                    let next_ws_geo = self.workspaces_render_geo(visual_count).nth(ws_idx).unwrap();
                     let hint_width = round_logical_in_physical(scale, next_ws_geo.size.w * 0.75);
                     let hint_x =
                         round_logical_in_physical(scale, (next_ws_geo.size.w - hint_width) / 2.);
@@ -1467,11 +1519,15 @@ impl<W: LayoutElement> Monitor<W> {
         if let Some(switch) = &self.workspace_switch {
             switch.current_idx()
         } else {
-            self.active_workspace_idx as f64
+            self.real_to_visual_idx(self.active_workspace_idx)
+                .unwrap_or(0) as f64
         }
     }
 
-    pub fn workspaces_render_geo(&self) -> impl Iterator<Item = Rectangle<f64, Logical>> {
+    pub fn workspaces_render_geo(
+        &self,
+        visual_count: usize,
+    ) -> impl Iterator<Item = Rectangle<f64, Logical>> {
         let scale = self.scale.fractional_scale();
         let zoom = self.overview_zoom();
 
@@ -1488,7 +1544,7 @@ impl<W: LayoutElement> Monitor<W> {
         let first_ws_y = round_logical_in_physical(scale, first_ws_y);
 
         // Return position for one-past-last workspace too.
-        (0..=self.workspaces.len()).map(move |idx| {
+        (0..=visual_count).map(move |idx| {
             let y = first_ws_y + idx as f64 * ws_height_with_gap;
             let loc = Point::from((0., y)) + static_offset;
             Rectangle::new(loc, ws_size)
@@ -1500,8 +1556,10 @@ impl<W: LayoutElement> Monitor<W> {
     ) -> impl Iterator<Item = (&Workspace<W>, Rectangle<f64, Logical>)> {
         let output_geo = Rectangle::from_size(self.view_size);
 
-        let geo = self.workspaces_render_geo();
-        zip(self.workspaces.iter(), geo)
+        let visual_indices = self.get_visual_indices();
+        let geo = self.workspaces_render_geo(visual_indices.len());
+        zip(visual_indices, geo)
+            .map(move |(idx, geo)| (&self.workspaces[idx], geo))
             // Cull out workspaces outside the output.
             .filter(move |(_ws, geo)| geo.intersection(output_geo).is_some())
     }
@@ -1511,8 +1569,10 @@ impl<W: LayoutElement> Monitor<W> {
     ) -> impl Iterator<Item = ((usize, &Workspace<W>), Rectangle<f64, Logical>)> {
         let output_geo = Rectangle::from_size(self.view_size);
 
-        let geo = self.workspaces_render_geo();
-        zip(self.workspaces.iter().enumerate(), geo)
+        let visual_indices = self.get_visual_indices();
+        let geo = self.workspaces_render_geo(visual_indices.len());
+        zip(visual_indices, geo)
+            .map(move |(idx, geo)| ((idx, &self.workspaces[idx]), geo))
             // Cull out workspaces outside the output.
             .filter(move |(_ws, geo)| geo.intersection(output_geo).is_some())
     }
@@ -1523,9 +1583,58 @@ impl<W: LayoutElement> Monitor<W> {
     ) -> impl Iterator<Item = (&mut Workspace<W>, Rectangle<f64, Logical>)> {
         let output_geo = Rectangle::from_size(self.view_size);
 
-        let geo = self.workspaces_render_geo();
-        zip(self.workspaces.iter_mut(), geo)
-            // Cull out workspaces outside the output.
+        let visual_indices = self.get_visual_indices();
+        // Since we need mutable reference, we can't index directly in map easily because of borrow checker (unless unsafe or split_at_mut tricks).
+        // But iterator is safe if we don't access same element.
+        // `workspaces_render_geo` returns iterator of Rects.
+        // `visual_indices` is Vec<usize>.
+        // We can't iterate `self.workspaces` directly because we skip some.
+        // We need to yield `&mut Workspace`.
+        // A simple way is to use `ptr` or unsafe, OR assume `Monitor` has few workspaces and collecting refs is fine? No, mutable refs can't be collected.
+        //
+        // Safe way: `zip(self.workspaces.iter_mut().enumerate(), ...)` but we need to filter.
+        //
+        // Let's implement an iterator that skips non-visual workspaces.
+        // But `visual_indices` depends on active/previous state.
+        //
+        // We can replicate `get_visual_indices` logic inside the iterator filter.
+        //
+        let ongoing_switch = self.workspace_switch.is_some();
+        let active_id = self.workspaces[self.active_workspace_idx].id();
+        let prev_id = self.previous_workspace_id;
+
+        // We need to pass the geometry too. Geometry index corresponds to visual index.
+        //
+        // This is tricky. `workspaces_render_geo` iterates 0, 1, 2...
+        // We need to pair 0th visual workspace with 0th geo.
+        //
+        // So we can zip `workspaces.iter_mut()` with something? No, we skip some workspaces.
+        //
+        // Let's create an iterator that filters workspaces and tracks visual index.
+        let mut geo_iter = self.workspaces_render_geo(visual_indices.len());
+
+        self.workspaces
+            .iter_mut()
+            .filter(move |ws| {
+                if !ws.hidden() {
+                    return true;
+                }
+                if ws.id() == active_id {
+                    return true;
+                }
+                if ongoing_switch {
+                    if let Some(prev_id) = prev_id {
+                        if ws.id() == prev_id {
+                            return true;
+                        }
+                    }
+                }
+                false
+            })
+            .map(move |ws| {
+                let geo = geo_iter.next().unwrap();
+                (ws, geo)
+            })
             .filter(move |(_ws, geo)| !cull || geo.intersection(output_geo).is_some())
     }
 
