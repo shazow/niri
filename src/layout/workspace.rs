@@ -105,6 +105,9 @@ pub struct Workspace<W: LayoutElement> {
     /// Optional name of this workspace.
     pub(super) name: Option<String>,
 
+    /// Whether this workspace is indexed.
+    pub(super) is_indexed: bool,
+
     /// Layout config overrides for this workspace.
     layout_config: Option<niri_config::LayoutPart>,
 
@@ -221,6 +224,12 @@ impl<W: LayoutElement> Workspace<W> {
             .map(OutputId)
             .unwrap_or(OutputId::new(&output));
 
+        let is_indexed = config
+            .as_ref()
+            .and_then(|c| c.indexed)
+            .map(|f| f.0)
+            .unwrap_or(true);
+
         let layout_config = config.as_mut().and_then(|c| c.layout.take().map(|x| x.0));
 
         let scale = output.current_scale();
@@ -268,6 +277,7 @@ impl<W: LayoutElement> Workspace<W> {
             base_options,
             options,
             name: config.map(|c| c.name.0),
+            is_indexed,
             layout_config,
             id: WorkspaceId::next(),
         }
@@ -284,6 +294,12 @@ impl<W: LayoutElement> Workspace<W> {
                 .and_then(|c| c.open_on_output.clone())
                 .unwrap_or_default(),
         );
+
+        let is_indexed = config
+            .as_ref()
+            .and_then(|c| c.indexed)
+            .map(|f| f.0)
+            .unwrap_or(true);
 
         let layout_config = config.as_mut().and_then(|c| c.layout.take().map(|x| x.0));
 
@@ -332,6 +348,7 @@ impl<W: LayoutElement> Workspace<W> {
             base_options,
             options,
             name: config.map(|c| c.name.0),
+            is_indexed,
             layout_config,
             id: WorkspaceId::next(),
         }
@@ -347,6 +364,10 @@ impl<W: LayoutElement> Workspace<W> {
 
     pub fn name(&self) -> Option<&String> {
         self.name.as_ref()
+    }
+
+    pub fn is_indexed(&self) -> bool {
+        self.is_indexed
     }
 
     pub fn unname(&mut self) {

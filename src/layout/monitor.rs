@@ -373,6 +373,27 @@ impl<W: LayoutElement> Monitor<W> {
         &self.workspaces[self.active_workspace_idx]
     }
 
+    pub fn get_indexed_workspace_index(&self, index: usize) -> Option<usize> {
+        let mut current_indexed_count = 0;
+        for (i, ws) in self.workspaces.iter().enumerate() {
+            if ws.is_indexed() {
+                if current_indexed_count == index {
+                    return Some(i);
+                }
+                current_indexed_count += 1;
+            }
+        }
+        None
+    }
+
+    fn next_indexed_workspace_idx(&self, idx: usize) -> Option<usize> {
+        (idx + 1..self.workspaces.len()).find(|&i| self.workspaces[i].is_indexed())
+    }
+
+    fn prev_indexed_workspace_idx(&self, idx: usize) -> Option<usize> {
+        (0..idx).rev().find(|&i| self.workspaces[i].is_indexed())
+    }
+
     pub fn find_named_workspace(&self, workspace_name: &str) -> Option<&Workspace<W>> {
         self.workspaces.iter().find(|ws| {
             ws.name
@@ -783,7 +804,9 @@ impl<W: LayoutElement> Monitor<W> {
     pub fn move_to_workspace_up(&mut self, focus: bool) {
         let source_workspace_idx = self.active_workspace_idx;
 
-        let new_idx = source_workspace_idx.saturating_sub(1);
+        let new_idx = self
+            .prev_indexed_workspace_idx(source_workspace_idx)
+            .unwrap_or(source_workspace_idx);
         if new_idx == source_workspace_idx {
             return;
         }
@@ -817,7 +840,9 @@ impl<W: LayoutElement> Monitor<W> {
     pub fn move_to_workspace_down(&mut self, focus: bool) {
         let source_workspace_idx = self.active_workspace_idx;
 
-        let new_idx = min(source_workspace_idx + 1, self.workspaces.len() - 1);
+        let new_idx = self
+            .next_indexed_workspace_idx(source_workspace_idx)
+            .unwrap_or(source_workspace_idx);
         if new_idx == source_workspace_idx {
             return;
         }
@@ -910,7 +935,9 @@ impl<W: LayoutElement> Monitor<W> {
     pub fn move_column_to_workspace_up(&mut self, activate: bool) {
         let source_workspace_idx = self.active_workspace_idx;
 
-        let new_idx = source_workspace_idx.saturating_sub(1);
+        let new_idx = self
+            .prev_indexed_workspace_idx(source_workspace_idx)
+            .unwrap_or(source_workspace_idx);
         if new_idx == source_workspace_idx {
             return;
         }
@@ -931,7 +958,9 @@ impl<W: LayoutElement> Monitor<W> {
     pub fn move_column_to_workspace_down(&mut self, activate: bool) {
         let source_workspace_idx = self.active_workspace_idx;
 
-        let new_idx = min(source_workspace_idx + 1, self.workspaces.len() - 1);
+        let new_idx = self
+            .next_indexed_workspace_idx(source_workspace_idx)
+            .unwrap_or(source_workspace_idx);
         if new_idx == source_workspace_idx {
             return;
         }
@@ -983,7 +1012,9 @@ impl<W: LayoutElement> Monitor<W> {
                 let new = current.ceil() - 1.;
                 new.clamp(0., (self.workspaces.len() - 1) as f64) as usize
             }
-            _ => self.active_workspace_idx.saturating_sub(1),
+            _ => self
+                .prev_indexed_workspace_idx(self.active_workspace_idx)
+                .unwrap_or(self.active_workspace_idx),
         };
 
         self.activate_workspace(new_idx);
@@ -997,7 +1028,9 @@ impl<W: LayoutElement> Monitor<W> {
                 let new = current.floor() + 1.;
                 new.clamp(0., (self.workspaces.len() - 1) as f64) as usize
             }
-            _ => min(self.active_workspace_idx + 1, self.workspaces.len() - 1),
+            _ => self
+                .next_indexed_workspace_idx(self.active_workspace_idx)
+                .unwrap_or(self.active_workspace_idx),
         };
 
         self.activate_workspace(new_idx);
