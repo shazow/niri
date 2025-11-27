@@ -1,5 +1,6 @@
 use knuffel::errors::DecodeError;
 
+use crate::utils::Flag;
 use crate::LayoutPart;
 
 #[derive(knuffel::Decode, Debug, Clone, PartialEq)]
@@ -10,6 +11,8 @@ pub struct Workspace {
     pub open_on_output: Option<String>,
     #[knuffel(child)]
     pub layout: Option<WorkspaceLayoutPart>,
+    #[knuffel(child)]
+    pub hidden: Option<Flag>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

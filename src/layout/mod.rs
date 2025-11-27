@@ -1260,7 +1260,10 @@ impl<W: LayoutElement> Layout<W> {
         if let WorkspaceReference::Index(index) = reference {
             self.active_monitor().and_then(|m| {
                 let index = index.saturating_sub(1) as usize;
-                m.workspaces.get_mut(index)
+                m.workspaces
+                    .iter_mut()
+                    .filter(|ws| !ws.is_hidden())
+                    .nth(index)
             })
         } else {
             self.workspaces_mut().find(|ws| match &reference {
@@ -2887,6 +2890,7 @@ impl<W: LayoutElement> Layout<W> {
             let Some(name) = ws.name() else { continue };
             if let Some(config) = config.workspaces.iter().find(|w| &w.name.0 == name) {
                 ws.update_layout_config(config.layout.clone().map(|x| x.0));
+                ws.set_hidden(config.hidden.map(|f| f.0).unwrap_or(false));
             }
         }
 
@@ -4136,7 +4140,8 @@ impl<W: LayoutElement> Layout<W> {
                         let zoom = mon.overview_zoom();
                         // No point in trying to use the pointer position on the wrong output.
                         let ws = &mon.workspaces[0];
-                        let ws_geo = mon.workspaces_render_geo().next().unwrap();
+                        let visual_count = mon.visual_workspaces().count();
+                        let ws_geo = mon.workspaces_render_geo(visual_count).next().unwrap();
 
                         let position = if move_.is_floating {
                             InsertPosition::Floating
