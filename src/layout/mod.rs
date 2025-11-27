@@ -4140,7 +4140,7 @@ impl<W: LayoutElement> Layout<W> {
                         let zoom = mon.overview_zoom();
                         // No point in trying to use the pointer position on the wrong output.
                         let ws = &mon.workspaces[0];
-                        let visual_count = mon.get_visual_indices().len();
+                        let visual_count = mon.get_visual_count();
                         let ws_geo = mon.workspaces_render_geo(visual_count).next().unwrap();
 
                         let position = if move_.is_floating {
