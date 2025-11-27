@@ -435,6 +435,8 @@ enum Op {
         output_name: Option<usize>,
         #[proptest(strategy = "prop::option::of(arbitrary_layout_part().prop_map(Box::new))")]
         layout_config: Option<Box<niri_config::LayoutPart>>,
+        #[proptest(strategy = "any::<bool>()")]
+        indexed: bool,
     },
     UnnameWorkspace {
         #[proptest(strategy = "1..=5usize")]
@@ -861,11 +863,13 @@ impl Op {
                 ws_name,
                 output_name,
                 layout_config,
+                indexed,
             } => {
                 layout.ensure_named_workspace(&WorkspaceConfig {
                     name: WorkspaceName(format!("ws{ws_name}")),
                     open_on_output: output_name.map(|name| format!("output{name}")),
                     layout: layout_config.map(|x| niri_config::WorkspaceLayoutPart(*x)),
+                    indexed: Some(Flag(indexed)),
                 });
             }
             Op::UnnameWorkspace { ws_name } => {
@@ -1680,6 +1684,7 @@ fn operations_dont_panic() {
             ws_name: 1,
             output_name: Some(1),
             layout_config: None,
+            indexed: true,
         },
         Op::UnnameWorkspace { ws_name: 1 },
         Op::AddWindow {
@@ -1831,6 +1836,7 @@ fn operations_from_starting_state_dont_panic() {
             ws_name: 1,
             output_name: Some(1),
             layout_config: None,
+            indexed: true,
         },
         Op::UnnameWorkspace { ws_name: 1 },
         Op::AddWindow {
@@ -2370,11 +2376,13 @@ fn removing_all_outputs_preserves_empty_named_workspaces() {
             ws_name: 1,
             output_name: None,
             layout_config: None,
+            indexed: true,
         },
         Op::AddNamedWorkspace {
             ws_name: 2,
             output_name: None,
             layout_config: None,
+            indexed: true,
         },
         Op::RemoveOutput(1),
     ];
@@ -2738,6 +2746,7 @@ fn named_workspace_to_output() {
             ws_name: 1,
             output_name: None,
             layout_config: None,
+            indexed: true,
         },
         Op::AddOutput(1),
         Op::MoveWorkspaceToOutput(1),
@@ -2754,6 +2763,7 @@ fn named_workspace_to_output_ewaf() {
             ws_name: 1,
             output_name: Some(2),
             layout_config: None,
+            indexed: true,
         },
         Op::AddOutput(1),
         Op::AddOutput(2),
@@ -2994,6 +3004,7 @@ fn interactive_move_from_workspace_with_layout_config() {
                 }),
                 ..Default::default()
             })),
+            indexed: true,
         },
         Op::AddOutput(1),
         Op::AddWindow {
@@ -3870,4 +3881,43 @@ proptest! {
 
         check_ops_with_options(options, ops);
     }
+}
+
+#[test]
+fn indexed_workspaces() {
+    let ops = [
+        Op::AddOutput(1),
+        Op::AddNamedWorkspace {
+            ws_name: 1,
+            output_name: None,
+            layout_config: None,
+            indexed: true,
+        },
+        Op::AddNamedWorkspace {
+            ws_name: 2,
+            output_name: None,
+            layout_config: None,
+            indexed: false,
+        },
+        Op::AddNamedWorkspace {
+            ws_name: 3,
+            output_name: None,
+            layout_config: None,
+            indexed: true,
+        },
+        // Current state: [ws3, ws2, ws1, Empty]
+        // ws3: indexed
+        // ws2: non-indexed
+        // ws1: indexed
+        // Empty: indexed
+
+        // Focus first indexed workspace (ws3)
+        Op::FocusWorkspace(0),
+        // Focus down -> should skip ws2 and go to ws1
+        Op::FocusWorkspaceDown,
+    ];
+
+    let layout = check_ops(ops);
+    let ws = layout.active_workspace().unwrap();
+    assert_eq!(ws.name(), Some(&"ws1".to_string()));
 }

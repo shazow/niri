@@ -1500,16 +1500,34 @@ impl State {
             }
             Action::MoveWorkspaceToIndex(new_idx) => {
                 let new_idx = new_idx.saturating_sub(1);
-                self.niri.layout.move_workspace_to_idx(None, new_idx);
-                // FIXME: granular
-                self.niri.queue_redraw_all();
-            }
-            Action::MoveWorkspaceToIndexByRef { new_idx, reference } => {
-                if let Some(res) = self.niri.find_output_and_workspace_index(reference) {
-                    let new_idx = new_idx.saturating_sub(1);
-                    self.niri.layout.move_workspace_to_idx(Some(res), new_idx);
+                if let Some(phys_idx) = self.niri.layout.get_indexed_workspace_index(new_idx) {
+                    self.niri.layout.move_workspace_to_idx(None, phys_idx);
                     // FIXME: granular
                     self.niri.queue_redraw_all();
+                }
+            }
+            Action::MoveWorkspaceToIndexByRef { new_idx, reference } => {
+                if let Some((output, old_idx)) =
+                    self.niri.find_output_and_workspace_index(reference)
+                {
+                    let new_idx = new_idx.saturating_sub(1);
+
+                    let target_monitor = if let Some(output) = &output {
+                        self.niri.layout.monitor_for_output(output)
+                    } else {
+                        self.niri.layout.active_monitor_ref()
+                    };
+
+                    if let Some(mon) = target_monitor {
+                        if let Some(phys_idx) = mon.get_indexed_workspace_index(new_idx) {
+                            self.niri.layout.move_workspace_to_idx(
+                                Some((output, old_idx)),
+                                phys_idx,
+                            );
+                            // FIXME: granular
+                            self.niri.queue_redraw_all();
+                        }
+                    }
                 }
             }
             Action::SetWorkspaceName(name) => {

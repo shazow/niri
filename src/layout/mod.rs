@@ -1198,6 +1198,11 @@ impl<W: LayoutElement> Layout<W> {
         }
     }
 
+    pub fn get_indexed_workspace_index(&self, index: usize) -> Option<usize> {
+        self.active_monitor_ref()
+            .and_then(|m| m.get_indexed_workspace_index(index))
+    }
+
     pub fn find_workspace_by_id(&self, id: WorkspaceId) -> Option<(usize, &Workspace<W>)> {
         match &self.monitor_set {
             MonitorSet::Normal { ref monitors, .. } => {
@@ -1260,7 +1265,8 @@ impl<W: LayoutElement> Layout<W> {
         if let WorkspaceReference::Index(index) = reference {
             self.active_monitor().and_then(|m| {
                 let index = index.saturating_sub(1) as usize;
-                m.workspaces.get_mut(index)
+                let idx = m.get_indexed_workspace_index(index)?;
+                m.workspaces.get_mut(idx)
             })
         } else {
             self.workspaces_mut().find(|ws| match &reference {
